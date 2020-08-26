@@ -24,6 +24,7 @@
 #	OCF_RESKEY_START_WAITTIME   (optional, to solve timing problems during J2EE-Addin start)
 #	OCF_RESKEY_AUTOMATIC_RECOVER    (optional, automatic startup recovery using cleanipc, default is false)
 #	OCF_RESKEY_MONITOR_SERVICES     (optional, default is to monitor critical services only)
+#	OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV (optional, default is to monitor via "sapstartsrv" also for probe operations, leightweight monitoring via ps "sapinstance" can be used at you own risk )
 #	OCF_RESKEY_SHUTDOWN_METHOD      (optional, defaults to NORMAL, KILL: terminate the SAP instance with OS commands - faster, at your own risk)
 #	OCF_RESKEY_ERS_InstanceName     (optional, InstanceName of the ERS instance in a Master/Slave configuration)
 #	OCF_RESKEY_ERS_START_PROFILE    (optional, START_PROFILE of the ERS instance in a Master/Slave configuration)
@@ -52,6 +53,7 @@ OCF_RESKEY_START_PROFILE_default=""
 OCF_RESKEY_START_WAITTIME_default="3600"
 OCF_RESKEY_AUTOMATIC_RECOVER_default="false"
 OCF_RESKEY_MONITOR_SERVICES_default="disp+work|msg_server|enserver|enrepserver|jcontrol|jstart|enq_server|enq_replicator"
+OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV_default="false"
 OCF_RESKEY_SHUTDOWN_METHOD_default="normal"
 OCF_RESKEY_ERS_InstanceName_default=""
 OCF_RESKEY_ERS_START_PROFILE_default=""
@@ -68,6 +70,7 @@ OCF_RESKEY_IS_ERS_default="false"
 : ${OCF_RESKEY_START_WAITTIME=${OCF_RESKEY_START_WAITTIME_default}}
 : ${OCF_RESKEY_AUTOMATIC_RECOVER=${OCF_RESKEY_AUTOMATIC_RECOVER_default}}
 : ${OCF_RESKEY_MONITOR_SERVICES=${OCF_RESKEY_MONITOR_SERVICES_default}}
+: ${OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV=${OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV_default}}
 : ${OCF_RESKEY_SHUTDOWN_METHOD=${OCF_RESKEY_SHUTDOWN_METHOD_default}}
 : ${OCF_RESKEY_ERS_InstanceName=${OCF_RESKEY_ERS_InstanceName_default}}
 : ${OCF_RESKEY_ERS_START_PROFILE=${OCF_RESKEY_ERS_START_PROFILE_default}}
@@ -191,6 +194,12 @@ You may specify multiple services separated by a | (pipe) sign in this parameter
   </longdesc>
   <shortdesc lang="en">Services to monitor</shortdesc>
   <content type="string" default="${OCF_RESKEY_MONITOR_SERVICES_default}"/>
+ </parameter>
+ <parameter name="OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV" unique="0" required="0">
+  <longdesc lang="en">"sapstartsrv" is used to monitor the SAP instance by default, also for probe operations. To be able to do this, sapstartsrv will be started by each probe. This might be an unwanted behaviour in certain scenarios. Therefore a leightweight monitoring via ps "sapinstance" can be enabled for probe operations instead.
+  </longdesc>
+  <shortdesc lang="en">How to monitor the SAP instance</shortdesc>
+  <content type="string" default="sapstartsrv"/>
  </parameter>
   <parameter name="SHUTDOWN_METHOD" unique="0" required="0">
   <longdesc lang="en">Usually a SAP Instance is stopped by the command 'sapcontrol -nr InstanceNr -function Stop'. SHUTDOWN_METHOD=KILL means to kill the SAP Instance using OS commands. SAP processes of the instance are terminated with 'kill -9', shared memory is deleted with 'cleanipc' and the 'kill.sap' file will be deleted. That method is much faster than the graceful stop, but the instance does not have the chance to say goodbye to other SAPinstances in the same system. USE AT YOUR OWN RISK !!</longdesc>
@@ -424,6 +433,11 @@ sapinstance_init() {
   if [ -z "$OCF_RESKEY_MONITOR_SERVICES" ]
   then
     export OCF_RESKEY_MONITOR_SERVICES="${OCF_RESKEY_MONITOR_SERVICES_default}"
+  fi
+
+  if [ -z "$OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV" ]
+  then
+    export OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV="${OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV_default}"
   fi
 
   # as root user we need the library path to the SAP kernel to be able to call sapcontrol
@@ -709,6 +723,16 @@ sapinstance_stop() {
 sapinstance_monitor() {
   local MONLOG=$1
   local rc
+
+  if ocf_is_probe
+  then
+    if [ "$OCF_RESKEY_PROBE_WITHOUT_SAPSTARTSRV" == "true" ]
+    then
+      sapinstance_status
+      rc=$?
+      return $rc
+    fi
+  fi
 
   check_sapstartsrv
   rc=$?
